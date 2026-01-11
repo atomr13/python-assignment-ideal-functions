@@ -3,71 +3,104 @@ import numpy as np
 import pandas as pd
 from .exceptions import DataMismatchError
 
-class FunctionMatcher:
+
+"""
+Ideal Function selection using least squares.
+
+Selects, for each training function, the ideal function with the lowest SSE.
+Computes per-function thresholds based on the maximum deviation times sqrt2.
+"""
+
+
+# SSE Function
+class FunctionMatch:
     """
-    Handles least-squares matching between training and ideal functions.
+    Find best fitting ideal functions and compute deviation thresholds.
+
+    Args:
+        train_df: DataFrame containing x and training columns
+        ideal_df: Dataframe containing x and ideal columns
+        best_matches: Mapping for best found.
     """
-    def __init__(self, train_df: pd.DataFrame, ideal_df: pd.DataFrame):
-        # Basic sanity checks (use custom exception)
-        if len(train_df) != len(ideal_df):
-            raise DataMismatchError("Training and ideal data must have the same number of rows.")
-        if not train_df["x"].equals(ideal_df["x"]):
-            raise DataMismatchError("Training and ideal x-values are not aligned.")
-        
+    def __init__(self, train_df: pd.DataFrame, ideal_df: pd.DataFrame):        
         self.train_df = train_df
         self.ideal_df = ideal_df
-        self.best_matches: dict[str, tuple[str, float]] = {}
-        self.max_devs: dict[str, float] = {}
-        self.global_max_dev: float | None = None
-        self.threshold: float | None = None
+        self.best_matches = {}
+        self.max_devs = {}
+        self.global_max_dev= None
+        self.threshold = None
+    
 
+    #least squares error
     @staticmethod
-    def least_squares_error(y_true: pd.Series, y_pred: pd.Series) -> float:
-        """Return sum of squared errors between two aligned series."""
-        diff = y_true - y_pred
-        return float(np.sum(diff ** 2))
-
-    def find_best_matches(self, train_cols=None) -> dict:
+    def least_squares_error(y_act: pd.Series, y_pred: pd.Series):
         """
-        For each training column, find the ideal column with minimal SSE.
-        Returns dict like: {'y1': ('y13', 34.08), ...}
+        Compute SSE between two series.
+        """
+        dif = y_act - y_pred
+        squared = dif ** 2
+        total_err = np.sum(squared)
+        return float(total_err)
+
+
+    #find ideal column with lowest SSE. 
+    def find_matches(self, train_cols=None):
+        """
+        Select the ideal function with lowest SSE for each training function.
+        
+        Args:
+            train_cols: Optional list of training columns.
+        Returns:
+            Dict mapping  training column
         """
         if train_cols is None:
             train_cols = ["y1", "y2", "y3", "y4"]
 
-        ideal_cols = [c for c in self.ideal_df.columns if c != "x"]
+        ideal_cols = [col for col in self.ideal_df.columns if col != "x"]
         best_matches = {}
 
-        for t_col in train_cols:
+        for train_col in train_cols:
             min_err = float("inf")
-            best_col = None
+            best_pair = None
 
-            for i_col in ideal_cols:
-                err = self.least_squares_error(self.train_df[t_col], self.ideal_df[i_col])
-                if err < min_err:
-                    min_err = err
-                    best_col = i_col
+            for ideal_col in ideal_cols:
+                sse = self.least_squares_error(self.train_df[train_col], self.ideal_df[ideal_col])
+                if sse < min_err:
+                    min_err = sse
+                    best_pair = ideal_col
 
-            best_matches[t_col] = (best_col, min_err)
+            best_matches[train_col] = (best_pair, min_err)
 
         self.best_matches = best_matches
         return best_matches
 
-    def compute_deviations_and_threshold(self):
+    # max deviation for each pair & threshold.
+    def dev_and_thresh(self):
         """
-        Compute max deviation per training-ideal pair, global max deviation
-        and threshold = sqrt(2) * global_max_dev.
+        Compute maximum deviation and sqrt2 thresholds.
+
+        Returns:
+            max_dev_mp: Dict training_col -> max abs deviation (train vs chosen ideal)
+            thresholds: Dict training_col -> max_dev * sqrt(2)
+            ideal_threshold: Dict ideal_col -> threshold 
         """
-        if not self.best_matches:
-            raise RuntimeError("Call find_best_matches() before computing deviations.")
+        max_dev_mp = {}
+        thresholds = {}
+        ideal_threshold = {}
+
         
-        max_devs = {}
-        for t_col, (i_col, _) in self.best_matches.items():
-            deviations = np.abs(self.train_df[t_col] - self.ideal_df[i_col])
-            max_devs[t_col] = deviations.max()
+        for train_col, (ideal_col, _) in self.best_matches.items():
+            dev_series = self.train_df[train_col] - self.ideal_df[ideal_col]
+            abs_dev = np.abs(dev_series)
+            max_dev = float(abs_dev.max())
 
-        self.max_devs = max_devs
-        self.global_max_dev = max(max_devs.values())
-        self.threshold = math.sqrt(2) * self.global_max_dev
+            
+            max_dev_mp[train_col] = max_dev
+            thresholds[train_col] = max_dev * math.sqrt(2)
+            ideal_threshold[ideal_col] = thresholds[train_col]
 
-        return self.max_devs, self.global_max_dev, self.threshold
+        self.max_devs = max_dev_mp
+        self.thresholds = thresholds
+        self.ideal_threshold = ideal_threshold
+
+        return max_dev_mp, thresholds, ideal_threshold

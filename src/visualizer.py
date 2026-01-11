@@ -2,91 +2,97 @@ from bokeh.plotting import figure, show
 from bokeh.layouts import gridplot
 from bokeh.models import ColumnDataSource
 from bokeh.transform import factor_cmap
-from bokeh.palettes import Category10
-
+from bokeh.palettes import Category10, Category20
 import pandas as pd
-from .exceptions import DataMismatchError
 
-class VisualizationManager:
+"""
+Bokeh visualizations for training/ideal functions and mapped test points.
+"""
+
+
+
+class BokehViz:
     """
-    Handles Bokeh visualizations for:
-    - training vs ideal functions
-    - mapped test points
+    Create Bokeh plots for training vs ideal curves and mapped test points.
     """
-    def __init__(
-        self,
-        train_df: pd.DataFrame,
-        ideal_df: pd.DataFrame,
-        best_matches: dict,
-        mapping_df: pd.DataFrame | None = None,
-    ):
-        self.train_df = train_df
-        self.ideal_df = ideal_df
+    def __init__(self, train_dframe, ideal_dframe, best_matches, mapping_dframe = None):
+        self.train_dframe = train_dframe
+        self.ideal_dframe = ideal_dframe
         self.best_matches = best_matches
-        self.mapping_df = mapping_df
+        self.mapping_dframe = mapping_dframe
 
-    def plot_training_vs_ideal(self):
+    def training_vs_ideal(self):
         """
-        Create a 2x2 grid of plots: each training function vs its matched ideal function.
+        Plot each training function against its selected ideal function.
         """
-        plots = []
+        all_plots = []
 
-        for t_col, (i_col, _) in self.best_matches.items():
+        #loop each matched pair
+        for train_func, (ideal_func, error) in self.best_matches.items():
+
+        #create base plot
             p = figure(
                 width=400,
                 height=300,
-                title=f"{t_col} vs {i_col}",
-                x_axis_label="x",
-                y_axis_label="y",
+                title=f"{train_func} vs {ideal_func}",
+                x_axis_label="X",
+                y_axis_label="Y",
+            )
+            
+            #training function line draw
+            p.line(
+                self.train_dframe["x"],
+                self.train_dframe[train_func],
+                legend_label=f"Train: {train_func}",
+                line_width = 2
             )
 
-            # training data
-            p.line(self.train_df["x"], self.train_df[t_col],
-                   legend_label=f"train {t_col}")
+            #ideal function line draw
+            p.line(
+                self.ideal_dframe["x"],
+                self.ideal_dframe[ideal_func],
+                line_dash="dashed",
+                legend_label=f"Ideal: {ideal_func}",
+                line_color = "orange"
+            )
 
-            # ideal function (dashed)
-            p.line(self.ideal_df["x"], self.ideal_df[i_col],
-                   line_dash="dashed",
-                   legend_label=f"ideal {i_col}")
-
+            
             p.legend.location = "top_left"
-            plots.append(p)
+            all_plots.append(p)
 
-        # assume exactly 4 training functions (y1..y4)
-        grid = gridplot([[plots[0], plots[1]],
-                         [plots[2], plots[3]]])
+        show(gridplot(all_plots, ncols=2))
 
-        show(grid)
 
-    def plot_mapped_test_points(self):
+
+    def mapped_test_points(self):
         """
-        Scatter plot of mapped test points, colored by ideal_function.
+        Plot mapped test points colored by the assigned ideal function.
         """
-        if self.mapping_df is None or self.mapping_df.empty:
-            raise DataMismatchError("mapping_df is empty. Run TestMapper.map_test_points() first.")
+        source = ColumnDataSource(self.mapping_dframe)
+        uniq_func = list(self.mapping_dframe["ideal_function"].unique())
 
-        source = ColumnDataSource(self.mapping_df)
-        factors = list(self.mapping_df["ideal_function"].unique())
+        #choose palette
+        if len(uniq_func) <= 10:
+            palette = Category10[max(3, len(uniq_func))]
+        else:
+            palette = Category20[20]
 
+        # create plot base
         p = figure(
             width=700,
             height=450,
             title="Mapped test points by ideal function",
-            x_axis_label="x",
+            x_axis_label="X",
             y_axis_label="y",
         )
-
-        # Use scatter (Bokeh 3+ friendly) instead of circle
+        
+        #scatter with colors
         p.scatter(
             x="x",
             y="y",
             size=10,
             source=source,
-            color=factor_cmap(
-                "ideal_function",
-                palette=Category10[max(3, len(factors))],
-                factors=factors,
-            ),
+            color=factor_cmap("ideal_function", palette=palette, factors=uniq_func),
             legend_field="ideal_function",
         )
 

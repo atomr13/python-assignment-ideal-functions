@@ -1,7 +1,7 @@
 class DataMismatchError(Exception):
-    """Raised when datasets do not align or lengths differ."""
+    "Raised when there is a mismatch in data"
     pass
-
+    
 
 class MissingColumnError(Exception):
     """Raised when a required column is missing from a dataset."""
